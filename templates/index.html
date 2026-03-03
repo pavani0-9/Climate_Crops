@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Climate Crop Intelligence</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background: #eef3f2;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        }
+
+        select, button {
+            width: 100%;
+            padding: 8px;
+            margin-top: 8px;
+            border-radius: 6px;
+        }
+
+        button {
+            background: #1f9d7a;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        .kpi-container {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+        }
+
+        .kpi {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .charts {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+        }
+
+        canvas {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <!-- LEFT PANEL -->
+    <div class="card">
+        <h3>Location & Crop</h3>
+
+        <label>Country</label>
+        <select id="country" onchange="updateStates()">
+            {% for country in countries %}
+            <option value="{{ country }}">{{ country }}</option>
+            {% endfor %}
+        </select>
+
+        <label>State</label>
+        <select id="state"></select>
+
+        <label>Crop</label>
+        <select id="crop">
+            {% for crop in crops %}
+            <option>{{ crop }}</option>
+            {% endfor %}
+        </select>
+
+        <label>Start Year</label>
+        <select id="startYear">
+            {% for year in range(2015, 2041) %}
+            <option value="{{ year }}">{{ year }}</option>
+            {% endfor %}
+        </select>
+
+        <label>End Year</label>
+        <select id="endYear">
+            {% for year in range(2015, 2041) %}
+            <option value="{{ year }}">{{ year }}</option>
+            {% endfor %}
+        </select>
+
+        <br><br>
+        <button onclick="runPrediction()">Run Prediction</button>
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div>
+
+        <div class="kpi-container">
+            <div class="kpi">
+                <small>Yield Change</small>
+                <h3 id="yieldKPI">--</h3>
+            </div>
+            <div class="kpi">
+                <small>Water Stress</small>
+                <h3 id="waterKPI">--</h3>
+            </div>
+            <div class="kpi">
+                <small>Pest Risk</small>
+                <h3 id="pestKPI">--</h3>
+            </div>
+            <div class="kpi">
+                <small>Food Security</small>
+                <h3 id="foodKPI">--</h3>
+            </div>
+        </div>
+
+        <br>
+
+        <div class="charts">
+            <div class="card">
+                <h3>Climate Projection (2015–2040)</h3>
+                <canvas id="climateChart"></canvas>
+            </div>
+
+            <div class="card">
+                <h3>Yield Forecast</h3>
+                <canvas id="yieldChart"></canvas>
+            </div>
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+let climateChart, yieldChart;
+
+function updateStates() {
+    const country = document.getElementById("country").value;
+    const stateSelect = document.getElementById("state");
+    stateSelect.innerHTML = "";
+
+    const countryData = {{ countries | tojson | safe }};
+    if(countryData[country]) {
+        countryData[country].forEach(state => {
+            let option = document.createElement("option");
+            option.text = state;
+            stateSelect.add(option);
+        });
+    }
+}
+
+window.onload = updateStates;
+
+async function runPrediction() {
+    const startYear = document.getElementById("startYear").value;
+    const endYear = document.getElementById("endYear").value;
+
+    if (parseInt(startYear) > parseInt(endYear)) {
+        alert("Start year must be less than End year");
+        return;
+    }
+
+    const response = await fetch("/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            start_year: startYear,
+            end_year: endYear,
+            country: document.getElementById("country").value,
+            state: document.getElementById("state").value,
+            crop: document.getElementById("crop").value
+        })
+    });
+
+    const data = await response.json();
+
+    // Update KPIs
+    document.getElementById("yieldKPI").innerText = data.kpis.yield_change + "%";
+    document.getElementById("waterKPI").innerText = data.kpis.water_stress + "%";
+    document.getElementById("pestKPI").innerText = data.kpis.pest_risk + "%";
+    document.getElementById("foodKPI").innerText = data.kpis.food_security + "%";
+
+    // Destroy old charts
+    if (climateChart) climateChart.destroy();
+    if (yieldChart) yieldChart.destroy();
+
+    // Draw Climate Chart
+    climateChart = new Chart(document.getElementById("climateChart"), {
+        type: "line",
+        data: {
+            labels: data.years,
+            datasets: [
+                { label: "Temperature (°C)", data: data.temperature, borderColor: "red", tension: 0.4 },
+                { label: "Rainfall (mm)", data: data.rainfall, borderColor: "blue", tension: 0.4 },
+                { label: "CO2 (ppm)", data: data.co2, borderColor: "green", tension: 0.4 }
+            ]
+        }
+    });
+
+    // Draw Yield Chart
+    yieldChart = new Chart(document.getElementById("yieldChart"), {
+        type: "line",
+        data: {
+            labels: data.years,
+            datasets: [
+                { label: "Yield Index", data: data.yield_index, borderColor: "#1f9d7a", tension: 0.4 }
+            ]
+        }
+    });
+}
+</script>
+
+</body>
+</html>
